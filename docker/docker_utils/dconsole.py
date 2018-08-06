@@ -26,6 +26,7 @@ import requests
 import socket
 import time
 import argparse
+import re
 
 try:  # Python 2 vs 3
     import urlparse
@@ -271,6 +272,26 @@ def fill_and_write_template(template_file, output_file, context=os.environ):
         print(e, file=sys.stderr)
         return False
 
+    
+def get_kafka_listeners(advertised_listeners):
+    """Derives listeners property from advertised.listeners. It just converts the
+       hostname to 0.0.0.0 so that Kafka process listens to all the interfaces.
+
+       For example, if
+            advertised_listeners = PLAINTEXT://foo:9999,SSL://bar:9098, SASL_SSL://10.0.4.5:7888
+            then, the function will return
+            PLAINTEXT://0.0.0.0:9999,SSL://0.0.0.0:9098, SASL_SSL://0.0.0.0:7888
+
+    Args:
+        advertised_listeners: advertised.listeners string.
+
+    Returns:
+        listeners string.
+
+    """
+    host = re.compile(r'://(.*?):', re.UNICODE)
+    return host.sub(r'://0.0.0.0:', advertised_listeners)
+
 
 def main():
     root = argparse.ArgumentParser(description='Docker Utility Belt.')
@@ -304,6 +325,9 @@ def main():
     check_env.add_argument('path', help='Full path.')
     check_env.add_argument('timeout', help='Time in secs to wait for the path to exist.', type=float)
 
+    config = actions.add_parser('listeners', description='Get listeners value from advertised.listeners. Replaces host to 0.0.0.0')
+    config.add_argument('advertised_listeners', help='advertised.listeners string.')
+
     if len(sys.argv) < 2:
         root.print_help()
         sys.exit(1)
@@ -326,6 +350,12 @@ def main():
         success = check_path_for_permissions(args.path, args.mode)
     elif args.action == "path-wait":
         success = wait_for_path(args.path, float(args.timeout))
+    elif args.action == "listeners":
+        listeners = get_kafka_listeners(args.advertised_listeners)
+        if listeners:
+            # Print the output to stdout. Don't delete this, this is not for debugging.
+            print(listeners)
+            success = True
 
     if success:
         sys.exit(0)
